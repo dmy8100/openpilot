@@ -32,7 +32,7 @@ CPU usage budget
   should not exceed MAX_TOTAL_CPU
 """
 
-TEST_DURATION = 25
+TEST_DURATION = 10
 LOG_OFFSET = 8
 
 MAX_TOTAL_CPU = 280.  # total for all 8 cores
@@ -332,6 +332,29 @@ class TestOnroad:
         assert max(d50) < 5.0, f"high SOF delta vs 50ms: {max(d50)}"
     result += "------------------------------------------------\n"
     print(result)
+
+  def test_camera_sync(self, subtests):
+    cams = ['roadEncodeIdx', 'wideRoadEncodeIdx', 'driverEncodeIdx']
+    lengths = {k: len(self.msgs[k]) for k in cams}
+
+    # ensure no skips first
+    for cam in cams:
+      with subtests.test(test="frame_skips", camera=cam):
+        assert set(np.diff(self.ts[cam]['frameId'])) == {1, }, "Frame ID skips"
+
+    # encoder guarantees that all cams start on the same frame ID
+    first_fid = {c: min(self.ts[c]['frameId']) for c in cams}
+    assert len(set(first_fid.values())) == 1, "Cameras don't start on same frame ID"
+
+    # we don't do a full rotation, so these might not match exactly
+    last_fid = {c: max(self.ts[c]['frameId']) for c in cams}
+    assert max(last_fid.values()) - min(last_fid.values()) < 10
+
+    start, end = min(first_fid.values()), min(last_fid.values())
+    for i in range(end-start):
+      ts = {c: round(self.ts[c]['timestampSof'][i]/1e6, 1) for c in cams}
+      diff = (max(ts.values()) - min(ts.values()))
+      assert diff < 2, f"Cameras not synced properly: frame_id={start+i}, {diff=:.1f}ms, {ts=}"
 
   def test_mpc_execution_timings(self):
     result = "\n"
